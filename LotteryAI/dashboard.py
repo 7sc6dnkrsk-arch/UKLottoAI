@@ -100,7 +100,7 @@ sum_bias = st.sidebar.slider("Sum Range Bias", 0, 10, 5)
 gap_bias = st.sidebar.slider("Gap Balance", 0, 10, 5)
 pair_bias = st.sidebar.slider("Pair Balance", 0, 10, 5)
 
-DATA_PATH = "data/lotto.csv"
+DATA_PATH = "LotteryAI/data/lotto.csv"
 
 if not os.path.exists(DATA_PATH):
     st.error("lotto.csv not found in LotteryAI/data/")
