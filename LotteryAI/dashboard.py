@@ -7,6 +7,10 @@ import os
 
 st.set_page_config(page_title="UK LottoAI", page_icon="🎯", layout="wide")
 
+# -----------------------------
+# STYLE
+# -----------------------------
+
 st.markdown("""
 <style>
 .stApp { background:#030507; color:#ffffff; }
@@ -23,7 +27,7 @@ h1,h2,h3,h4,p,label,span,div { color:#ffffff; }
 
 [data-testid="stMetricValue"] {
     color:#39ff63;
-    font-size:32px;
+    font-size:30px;
     font-weight:800;
 }
 
@@ -75,6 +79,10 @@ h1,h2,h3,h4,p,label,span,div { color:#ffffff; }
 </style>
 """, unsafe_allow_html=True)
 
+# -----------------------------
+# SIDEBAR
+# -----------------------------
+
 st.sidebar.markdown("# 🎯 UK LottoAI")
 st.sidebar.caption("Created by AR Taylor")
 
@@ -84,26 +92,37 @@ section = st.sidebar.radio(
 )
 
 st.sidebar.divider()
-st.sidebar.markdown("## ⚙️ Selector Optimisation")
+
+selection_mode = st.sidebar.radio(
+    "🎯 Choose Your Strategy",
+    [
+        "⭐ LottoAI Pick",
+        "🤝 Complete My Ticket",
+        "🎲 Smart Lucky Dip",
+        "📈 Top Trending Picks",
+        "💎 Overlooked Picks"
+    ]
+)
+
 st.sidebar.caption("""
-**5 = Neutral** — follows historical pattern  
-Below 5 biases lower/even/smaller  
-Above 5 biases higher/odd/larger
+**LottoAI Pick** — best overall historical selection.  
+**Complete My Ticket** — you choose 3, LottoAI adds 3.  
+**Smart Lucky Dip** — random but historically balanced.  
+**Top Trending Picks** — favours more frequently drawn numbers.  
+**Overlooked Picks** — favours less frequently drawn or longer-gap numbers.
 """)
 
-frequency_bias = st.sidebar.slider("Frequency Importance", 0, 10, 5)
-recent_bias = st.sidebar.slider("Recent Form Importance", 0, 10, 5)
-overdue_bias = st.sidebar.slider("Overdue Importance", 0, 10, 5)
-odd_even_bias = st.sidebar.slider("Odd / Even Bias", 0, 10, 5)
-low_high_bias = st.sidebar.slider("Low / High Bias", 0, 10, 5)
-sum_bias = st.sidebar.slider("Sum Range Bias", 0, 10, 5)
-gap_bias = st.sidebar.slider("Gap Balance", 0, 10, 5)
-pair_bias = st.sidebar.slider("Pair Balance", 0, 10, 5)
+# -----------------------------
+# LOAD DATA
+# -----------------------------
 
 DATA_PATH = "LotteryAI/data/lotto.csv"
 
 if not os.path.exists(DATA_PATH):
-    st.error("lotto.csv not found in LotteryAI/data/")
+    DATA_PATH = "data/lotto.csv"
+
+if not os.path.exists(DATA_PATH):
+    st.error("lotto.csv not found.")
     st.stop()
 
 lotto = pd.read_csv(DATA_PATH, header=None)
@@ -113,6 +132,10 @@ lotto = lotto.dropna(subset=number_cols)
 lotto[number_cols] = lotto[number_cols].astype(int)
 
 draws = lotto[number_cols].values.tolist()
+
+# -----------------------------
+# ANALYSIS
+# -----------------------------
 
 all_numbers = []
 draw_sums = []
@@ -151,6 +174,8 @@ for i, draw in enumerate(draws):
     for n in draw:
         last_seen[n] = i
 
+avg_sum = sum(draw_sums) / len(draw_sums)
+
 freq_df = pd.DataFrame({
     "Number": list(range(1, 60)),
     "Frequency": [frequency.get(n, 0) for n in range(1, 60)]
@@ -159,46 +184,17 @@ freq_df = pd.DataFrame({
 hot = freq_df.sort_values("Frequency", ascending=False)
 cold = freq_df.sort_values("Frequency", ascending=True)
 
-avg_sum = sum(draw_sums) / len(draw_sums)
-
-def normalise(value, max_value):
-    if max_value == 0:
-        return 0
-    return value / max_value
-
-max_freq = max(frequency.values())
-max_recent = max(recent_frequency.values()) if recent_frequency else 1
-max_overdue = max(latest_index - last_seen.get(n, 0) for n in range(1, 60))
-
-def number_base_score(n):
-    freq_component = normalise(frequency.get(n, 0), max_freq)
-    recent_component = normalise(recent_frequency.get(n, 0), max_recent)
-    overdue_component = normalise(latest_index - last_seen.get(n, 0), max_overdue)
-
-    f_weight = 1 + ((frequency_bias - 5) / 5)
-    r_weight = 1 + ((recent_bias - 5) / 5)
-    o_weight = 1 + ((overdue_bias - 5) / 5)
-
-    return (
-        freq_component * f_weight +
-        recent_component * r_weight +
-        overdue_component * o_weight
-    )
-
-def historical_pattern_score(pattern, counter):
-    most_common = counter.most_common(1)[0][1]
-    return counter.get(pattern, 0) / most_common
+# -----------------------------
+# HELPERS
+# -----------------------------
 
 def line_features(numbers):
     numbers = sorted(numbers)
     total = sum(numbers)
-
     odd = sum(1 for n in numbers if n % 2 != 0)
     even = 6 - odd
-
     low = sum(1 for n in numbers if n <= 29)
     high = 6 - low
-
     spread = max(numbers) - min(numbers)
 
     consecutive_pairs = sum(
@@ -212,88 +208,161 @@ def line_features(numbers):
 
     return total, odd, even, low, high, spread, consecutive_pairs, primes
 
-def score_line(numbers):
-    total, odd, even, low, high, spread, consecutive_pairs, primes = line_features(numbers)
 
-    base = sum(number_base_score(n) for n in numbers)
+def display_ball_line(numbers):
+    return "".join(f"<span class='number-ball'>{n}</span>" for n in sorted(numbers))
+
+
+def historical_shape_score(numbers):
+    total, odd, even, low, high, spread, consecutive_pairs, primes = line_features(numbers)
 
     odd_even_pattern = f"{odd}/{even}"
     low_high_pattern = f"{low}/{high}"
 
-    hist_odd_even = historical_pattern_score(odd_even_pattern, odd_even_counter)
-    hist_low_high = historical_pattern_score(low_high_pattern, low_high_counter)
+    odd_score = odd_even_counter.get(odd_even_pattern, 0) / odd_even_counter.most_common(1)[0][1]
+    low_score = low_high_counter.get(low_high_pattern, 0) / low_high_counter.most_common(1)[0][1]
+    sum_score = max(0, 1 - abs(total - avg_sum) / avg_sum)
+    spread_score = min(spread / 58, 1)
 
-    odd_even_direction = hist_odd_even
-    low_high_direction = hist_low_high
+    penalty = 0
+    if consecutive_pairs > 2:
+        penalty += 0.4
+    if spread < 18:
+        penalty += 0.3
 
-    if odd_even_bias < 5:
-        odd_even_direction += (even - odd) * 0.08
-    elif odd_even_bias > 5:
-        odd_even_direction += (odd - even) * 0.08
+    return max(0, odd_score + low_score + sum_score + spread_score - penalty)
 
-    if low_high_bias < 5:
-        low_high_direction += (low - high) * 0.08
-    elif low_high_bias > 5:
-        low_high_direction += (high - low) * 0.08
 
-    sum_score = 1 - abs(total - avg_sum) / avg_sum
-
-    if sum_bias < 5:
-        sum_score += (avg_sum - total) / 300
-    elif sum_bias > 5:
-        sum_score += (total - avg_sum) / 300
-
-    pair_score = 0
+def pair_score(numbers):
+    score = 0
+    numbers = sorted(numbers)
     for i in range(len(numbers)):
         for j in range(i + 1, len(numbers)):
-            pair_score += pair_counter.get((numbers[i], numbers[j]), 0)
+            score += pair_counter.get((numbers[i], numbers[j]), 0)
+    return score
 
-    pair_score = normalise(pair_score, max(pair_counter.values()))
 
-    gap_score = spread / 58
-    if gap_bias < 5:
-        gap_score = 1 - gap_score
-
-    final = (
-        base * 30 +
-        hist_odd_even * 20 +
-        hist_low_high * 20 +
-        odd_even_direction * (odd_even_bias * 4) +
-        low_high_direction * (low_high_bias * 4) +
-        sum_score * (sum_bias * 4) +
-        gap_score * (gap_bias * 3) +
-        pair_score * (pair_bias * 5)
-    )
-
-    return final
-
-def generate_numbers():
+def generate_lottoai_pick():
     best_line = None
     best_score = -1
 
-    for _ in range(8000):
+    for _ in range(10000):
         candidate = sorted(random.sample(range(1, 60), 6))
-        total, odd, even, low, high, spread, consecutive_pairs, primes = line_features(candidate)
 
-        if spread < 18:
-            continue
-        if consecutive_pairs > 2:
-            continue
+        base = sum(frequency.get(n, 0) for n in candidate)
+        recent = sum(recent_frequency.get(n, 0) for n in candidate)
+        overdue = sum(latest_index - last_seen.get(n, 0) for n in candidate)
+        shape = historical_shape_score(candidate)
+        pairs = pair_score(candidate)
 
-        score = score_line(candidate)
+        score = (
+            base * 1.0 +
+            recent * 12 +
+            overdue * 0.6 +
+            shape * 600 +
+            pairs * 0.25
+        )
 
         if score > best_score:
             best_score = score
             best_line = candidate
 
-    return best_line if best_line else sorted(random.sample(range(1, 60), 6))
+    return best_line
 
-def display_ball_line(numbers):
-    return "".join(f"<span class='number-ball'>{n}</span>" for n in numbers)
+
+def generate_smart_lucky_dip():
+    for _ in range(10000):
+        candidate = sorted(random.sample(range(1, 60), 6))
+        total, odd, even, low, high, spread, consecutive_pairs, primes = line_features(candidate)
+
+        if f"{odd}/{even}" not in ["2/4", "3/3", "4/2"]:
+            continue
+        if f"{low}/{high}" not in ["2/4", "3/3", "4/2"]:
+            continue
+        if not (avg_sum - 35 <= total <= avg_sum + 35):
+            continue
+        if spread < 20:
+            continue
+        if consecutive_pairs > 2:
+            continue
+
+        return candidate
+
+    return sorted(random.sample(range(1, 60), 6))
+
+
+def generate_top_trending():
+    pool = list(hot.head(25)["Number"])
+    return sorted(random.sample(pool, 6))
+
+
+def generate_overlooked():
+    overlooked_scores = []
+
+    for n in range(1, 60):
+        freq = frequency.get(n, 0)
+        overdue = latest_index - last_seen.get(n, 0)
+        score = overdue * 2 - freq
+        overlooked_scores.append((score, n))
+
+    overlooked_scores.sort(reverse=True)
+    pool = [n for score, n in overlooked_scores[:25]]
+    return sorted(random.sample(pool, 6))
+
+
+def complete_my_ticket(user_numbers):
+    user_numbers = sorted(set(user_numbers))
+
+    if len(user_numbers) != 3:
+        return None
+
+    best_line = None
+    best_score = -1
+
+    available = [n for n in range(1, 60) if n not in user_numbers]
+
+    for _ in range(8000):
+        added = random.sample(available, 3)
+        candidate = sorted(user_numbers + added)
+
+        base = sum(frequency.get(n, 0) for n in candidate)
+        shape = historical_shape_score(candidate)
+        pairs = pair_score(candidate)
+
+        score = base + shape * 700 + pairs * 0.3
+
+        if score > best_score:
+            best_score = score
+            best_line = candidate
+
+    return best_line
+
+
+def generate_line(mode, user_numbers=None):
+    if mode == "⭐ LottoAI Pick":
+        return generate_lottoai_pick()
+    elif mode == "🎲 Smart Lucky Dip":
+        return generate_smart_lucky_dip()
+    elif mode == "📈 Top Trending Picks":
+        return generate_top_trending()
+    elif mode == "💎 Overlooked Picks":
+        return generate_overlooked()
+    elif mode == "🤝 Complete My Ticket":
+        return complete_my_ticket(user_numbers)
+    return generate_smart_lucky_dip()
+
+
+# -----------------------------
+# HEADER
+# -----------------------------
 
 st.markdown("# 🎯 UK LottoAI")
 st.caption("Created by AR Taylor • Professional UK National Lottery Analytics Platform")
 st.divider()
+
+# -----------------------------
+# DASHBOARD
+# -----------------------------
 
 if section == "Dashboard":
 
@@ -306,44 +375,69 @@ if section == "Dashboard":
     c5.metric("Most Common Odd / Even", odd_even_counter.most_common(1)[0][0])
     c6.metric("Most Common Low / High", low_high_counter.most_common(1)[0][0])
 
-    lucky_dips = [generate_numbers() for _ in range(5)]
+    st.markdown("<div class='panel'>", unsafe_allow_html=True)
 
-    left, right = st.columns([2, 1.3])
+    st.markdown(f"## {selection_mode}")
 
-    with left:
-        st.markdown("<div class='panel'>", unsafe_allow_html=True)
-        st.markdown("## LUCKY DIP SELECTIONS")
+    if selection_mode == "⭐ LottoAI Pick":
+        st.markdown("<p class='small-note'>Best overall statistical selection using historical frequency, recent form, overdue gaps, pairings and historical shape.</p>", unsafe_allow_html=True)
 
-        for idx, numbers in enumerate(lucky_dips, start=1):
-            total, odd, even, low, high, spread, consecutive_pairs, primes = line_features(numbers)
-            balls_html = display_ball_line(numbers)
+    elif selection_mode == "🤝 Complete My Ticket":
+        st.markdown("<p class='small-note'>Choose 3 numbers. UK LottoAI completes the remaining 3 numbers.</p>", unsafe_allow_html=True)
 
-            st.markdown(
-                f"""
-                <div style="margin-bottom:18px;">
-                    <strong>Line {idx}</strong>
-                    <div style="margin-top:8px;">{balls_html}</div>
-                    <p class="small-note">
-                    Sum {total} • {odd} odd / {even} even • {low} low / {high} high • Spread {spread}
-                    </p>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+    elif selection_mode == "🎲 Smart Lucky Dip":
+        st.markdown("<p class='small-note'>Random selections shaped by common historical draw characteristics.</p>", unsafe_allow_html=True)
 
-        if st.button("↻ Generate New Lucky Dips"):
-            st.rerun()
+    elif selection_mode == "📈 Top Trending Picks":
+        st.markdown("<p class='small-note'>Favours numbers that have appeared more frequently in the historical dataset.</p>", unsafe_allow_html=True)
 
-        st.markdown("</div>", unsafe_allow_html=True)
+    elif selection_mode == "💎 Overlooked Picks":
+        st.markdown("<p class='small-note'>Favours numbers that have appeared less often or have longer gaps since last appearance.</p>", unsafe_allow_html=True)
 
-    with right:
-        st.markdown("<div class='panel'>", unsafe_allow_html=True)
-        st.markdown("## HISTORICAL SUMMARY")
-        st.write(f"Odd / Even ({odd_even_counter.most_common(1)[0][0]}) — {round(odd_even_counter.most_common(1)[0][1] / len(draws) * 100, 1)}%")
-        st.write(f"Low / High ({low_high_counter.most_common(1)[0][0]}) — {round(low_high_counter.most_common(1)[0][1] / len(draws) * 100, 1)}%")
-        st.write(f"Average Sum — {round(avg_sum, 1)}")
-        st.write(f"Total Draws Analysed — {len(draws):,}")
-        st.markdown("</div>", unsafe_allow_html=True)
+    user_numbers = None
+
+    if selection_mode == "🤝 Complete My Ticket":
+        a, b, c = st.columns(3)
+        with a:
+            n1 = st.number_input("Your number 1", min_value=1, max_value=59, value=7)
+        with b:
+            n2 = st.number_input("Your number 2", min_value=1, max_value=59, value=18)
+        with c:
+            n3 = st.number_input("Your number 3", min_value=1, max_value=59, value=44)
+
+        user_numbers = [int(n1), int(n2), int(n3)]
+
+        if len(set(user_numbers)) < 3:
+            st.warning("Please enter 3 different numbers.")
+
+    lines = []
+
+    for _ in range(5):
+        line = generate_line(selection_mode, user_numbers)
+        if line is not None:
+            lines.append(line)
+
+    for idx, numbers in enumerate(lines, start=1):
+        total, odd, even, low, high, spread, consecutive_pairs, primes = line_features(numbers)
+        balls_html = display_ball_line(numbers)
+
+        st.markdown(
+            f"""
+            <div style="margin-bottom:18px;">
+                <strong>Line {idx}</strong>
+                <div style="margin-top:8px;">{balls_html}</div>
+                <p class="small-note">
+                Sum {total} • {odd} odd / {even} even • {low} low / {high} high • Spread {spread}
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    if st.button("↻ Generate New Lines"):
+        st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
     left_chart, right_table = st.columns([1.5, 1])
 
@@ -366,16 +460,16 @@ if section == "Dashboard":
 
     with right_table:
         st.markdown("<div class='panel'>", unsafe_allow_html=True)
-        st.markdown("## HOT & COLD NUMBERS")
+        st.markdown("## NUMBER GROUPS")
 
         a, b = st.columns(2)
 
         with a:
-            st.markdown("### 🔥 Hot")
+            st.markdown("### 📈 Most Drawn")
             st.dataframe(hot.head(5), use_container_width=True, hide_index=True)
 
         with b:
-            st.markdown("### ❄️ Cold")
+            st.markdown("### 💎 Less Drawn")
             st.dataframe(cold.head(5), use_container_width=True, hide_index=True)
 
         st.markdown("</div>", unsafe_allow_html=True)
@@ -383,7 +477,7 @@ if section == "Dashboard":
     st.markdown("""
     <div class="footer-box">
     ℹ️ UK LottoAI is a research and analytics platform only. It does not predict lottery results.
-    All numbers are generated from historical data and user-selected optimisation criteria.
+    All numbers are generated from historical data and selected strategy criteria.
     </div>
     """, unsafe_allow_html=True)
 
@@ -411,7 +505,7 @@ elif section == "About":
 
     It is a lottery research and analytics platform.
 
-    It analyses historical patterns and allows selector optimisation.
+    It analyses historical patterns and offers different number-selection strategies.
 
     It does not increase the mathematical odds of a random lottery draw.
     """)
